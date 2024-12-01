@@ -3,6 +3,7 @@
 
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
     body {
       margin: 0;
@@ -139,6 +140,31 @@
       opacity: 0.2;
       margin: 0 4px;
       color: #fff;
+    }
+
+    @media (max-width: 768px) {
+      .taskbar {
+        padding: 8px 12px;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .taskbar select {
+        width: 100%;
+      }
+
+      .position-controls {
+        justify-self: stretch;
+      }
+
+      .zoom-display {
+        justify-self: stretch;
+        text-align: center;
+      }
+
+      #fractal-renderer {
+        border-radius: 0;
+      }
     }
   </style>
   <script type="module">
@@ -374,6 +400,76 @@
           },
           10,
         );
+      });
+
+      let lastTouchDistance = 0;
+      let lastTouchX = 0;
+      let lastTouchY = 0;
+
+      canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1) {
+          isDragging = true;
+          const touch = e.touches[0];
+          const pos = getCanvasCoordinates(touch);
+          lastX = pos.x;
+          lastY = pos.y;
+          lastTouchX = touch.clientX;
+          lastTouchY = touch.clientY;
+        } else if (e.touches.length === 2) {
+          isDragging = false;
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          lastTouchDistance = Math.sqrt(dx * dx + dy * dy);
+        }
+      });
+
+      canvas.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 1 && isDragging) {
+          const touch = e.touches[0];
+          const pos = getCanvasCoordinates(touch);
+          const dx = (pos.x - lastX) * (3.2 / height) / currentZoom;
+          const dy = (pos.y - lastY) * (3.2 / height) / currentZoom;
+          lastX = pos.x;
+          lastY = pos.y;
+          lastTouchX = touch.clientX;
+          lastTouchY = touch.clientY;
+
+          currentX -= dx;
+          currentY -= dy;
+          instance.exports.set_view(currentX, currentY, currentZoom);
+          updatePositionDisplay();
+          scheduleHighQualityRender();
+        } else if (e.touches.length === 2) {
+          const dx = e.touches[0].clientX - e.touches[1].clientX;
+          const dy = e.touches[0].clientY - e.touches[1].clientY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          const zoomFactor = distance / lastTouchDistance;
+          lastTouchDistance = distance;
+
+          const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+          const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+          const rect = canvas.getBoundingClientRect();
+          const zoomPoint = {
+            x: ((centerX - rect.left) / rect.width - 0.5) * (3.2 / currentZoom) + currentX,
+            y: ((centerY - rect.top) / rect.height - 0.5) * (3.2 / currentZoom) + currentY
+          };
+
+          currentZoom *= zoomFactor;
+
+          currentX = zoomPoint.x - ((centerX - rect.left) / rect.width - 0.5) * (3.2 / currentZoom);
+          currentY = zoomPoint.y - ((centerY - rect.top) / rect.height - 0.5) * (3.2 / currentZoom);
+
+          instance.exports.set_view(currentX, currentY, currentZoom);
+          updatePositionDisplay();
+          scheduleHighQualityRender();
+        }
+      });
+
+      canvas.addEventListener('touchend', () => {
+        isDragging = false;
       });
 
       canvas.classList.add('loaded');

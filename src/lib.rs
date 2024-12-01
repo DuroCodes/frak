@@ -2,8 +2,8 @@ use num_complex::Complex32;
 use rayon::prelude::*;
 use std::ptr::addr_of_mut;
 
-const MAX_WIDTH: usize = 3840;
-const MAX_HEIGHT: usize = 2160;
+const MAX_WIDTH: usize = 3200;
+const MAX_HEIGHT: usize = 2000;
 const PREVIEW_SCALE: usize = 4;
 
 #[no_mangle]
