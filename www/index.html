@@ -174,6 +174,46 @@
     }
   </style>
   <script type="module">
+    // Declare DOM elements first
+    const canvas = document.getElementById("fractal-renderer");
+    const fractalSelect = document.getElementById("fractal-select");
+    const xInput = document.getElementById("x-position");
+    const yInput = document.getElementById("y-position");
+    const zoomDisplay = document.getElementById("zoom-display");
+
+    // Declare state variables
+    let isDragging = false;
+    let lastX = 0, lastY = 0;
+    let currentX = 0, currentY = 0;
+    let currentZoom = 1.0;
+    let isHighQuality = false;
+    let renderTimeout = null;
+    let lastTouchDistance = 0;
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+
+    // URL handling functions
+    function updateURL() {
+      const params = new URLSearchParams();
+      params.set('f', fractalSelect.value);
+      params.set('x', currentX.toFixed(6));
+      params.set('y', currentY.toFixed(6));
+      params.set('z', currentZoom.toFixed(6));
+      const newURL = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, '', newURL);
+    }
+
+    function getURLParams() {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        fractal: parseInt(params.get('f')) || 0,
+        x: parseFloat(params.get('x')) || 0,
+        y: parseFloat(params.get('y')) || 0,
+        zoom: parseFloat(params.get('z')) || 1.0
+      };
+    }
+
+    // Rest of the initialization code
     const imports = {
       env: {
         memory: new WebAssembly.Memory({
@@ -193,13 +233,19 @@
       const width = 3840;
       const height = 2160;
 
-      const canvas = document.getElementById("fractal-renderer");
       canvas.width = width;
       canvas.height = height;
 
-      const fractalSelect = document.getElementById("fractal-select");
+      // Now read URL params
+      const urlParams = getURLParams();
+      fractalSelect.value = urlParams.fractal;
+      currentX = urlParams.x;
+      currentY = urlParams.y;
+      currentZoom = urlParams.zoom;
+
       fractalSelect.onchange = () => {
         instance.exports.set_fractal(parseInt(fractalSelect.value));
+        updateURL();
         scheduleHighQualityRender();
       };
 
@@ -208,9 +254,17 @@
 
       const imageData = ctx.createImageData(width, height);
 
-      let odd = false;
-      let renderTimeout = null;
-      let isHighQuality = false;
+      const numWorkers = Math.min(navigator.hardwareConcurrency || 4, 2);
+      const workers = Array.from({ length: numWorkers }, () => new Worker('worker.js'));
+
+      workers.forEach(worker => {
+        worker.onmessage = (e) => {
+          const { sharedArray, start, end } = e.data;
+          const localArray = new Uint32Array(imageData.data.buffer);
+          localArray.set(sharedArray.subarray(start, end), start);
+          ctx.putImageData(imageData, 0, 0);
+        };
+      });
 
       const renderHighQuality = () => {
         isHighQuality = true;
@@ -218,10 +272,13 @@
         instance.exports.render();
 
         const sharedArray = new Uint32Array(instance.exports.memory.buffer, buffer_address, width * height);
-        const localArray = new Uint32Array(imageData.data.buffer);
-        localArray.set(sharedArray);
+        const chunkSize = Math.ceil(sharedArray.length / numWorkers);
 
-        ctx.putImageData(imageData, 0, 0);
+        workers.forEach((worker, index) => {
+          const start = index * chunkSize;
+          const end = Math.min(start + chunkSize, sharedArray.length);
+          worker.postMessage({ sharedArray, start, end });
+        });
       };
 
       const scheduleHighQualityRender = () => {
@@ -230,7 +287,7 @@
         if (renderTimeout) {
           clearTimeout(renderTimeout);
         }
-        renderTimeout = setTimeout(renderHighQuality, 150);
+        renderTimeout = setTimeout(renderHighQuality, 100);
       };
 
       const render = () => {
@@ -238,18 +295,16 @@
           instance.exports.render();
 
           const sharedArray = new Uint32Array(instance.exports.memory.buffer, buffer_address, width * height);
-          const localArray = new Uint32Array(imageData.data.buffer);
-          localArray.set(sharedArray);
+          const chunkSize = Math.ceil(sharedArray.length / numWorkers);
 
-          ctx.putImageData(imageData, 0, 0);
+          workers.forEach((worker, index) => {
+            const start = index * chunkSize;
+            const end = Math.min(start + chunkSize, sharedArray.length);
+            worker.postMessage({ sharedArray, start, end });
+          });
         }
         requestAnimationFrame(render);
       };
-
-      let isDragging = false;
-      let lastX = 0, lastY = 0;
-      let currentX = 0, currentY = 0;
-      let currentZoom = 1.0;
 
       const getCanvasCoordinates = (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -286,16 +341,12 @@
       canvas.addEventListener('mouseup', () => isDragging = false);
       canvas.addEventListener('mouseleave', () => isDragging = false);
 
-      const xInput = document.getElementById("x-position");
-      const yInput = document.getElementById("y-position");
-
       const updatePositionDisplay = () => {
         xInput.value = currentX.toFixed(6);
         yInput.value = currentY.toFixed(6);
         updateZoomDisplay();
+        updateURL();
       };
-
-      const zoomDisplay = document.getElementById("zoom-display");
 
       const updateZoomDisplay = () => {
         zoomDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
@@ -408,10 +459,6 @@
         );
       });
 
-      let lastTouchDistance = 0;
-      let lastTouchX = 0;
-      let lastTouchY = 0;
-
       canvas.addEventListener('touchstart', (e) => {
         e.preventDefault();
         if (e.touches.length === 1) {
@@ -479,6 +526,8 @@
       });
 
       canvas.classList.add('loaded');
+      instance.exports.set_fractal(urlParams.fractal);
+      instance.exports.set_view(currentX, currentY, currentZoom);
       scheduleHighQualityRender();
       render();
       updatePositionDisplay();
