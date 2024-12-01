@@ -1,0 +1,51 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: wasm32-unknown-unknown
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen wabt
+          which wasm-strip
+
+      - name: Build wasm
+        run: |
+          chmod +x build.sh
+          ./build.sh
+          ls -la www/
+
+      - name: Move files to root
+        run: |
+          mv www/* .
+          rmdir www
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: "."
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v2

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%);
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .taskbar {
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .taskbar select {
+      justify-self: start;
+      width: 180px;
+    }
+
+    .taskbar-right {
+      justify-self: end;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+      opacity: 0.9;
+    }
+
+    select {
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 6px 28px 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.5)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      background-size: 16px;
+    }
+
+    select:hover {
+      background-color: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    select:focus {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .canvas-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 12px;
+    }
+
+    #fractal-renderer {
+      width: 100%;
+      max-width: 100%;
+      border-radius: 12px;
+      cursor: move;
+    }
+
+    .position-controls {
+      background: rgba(255, 255, 255, 0.06);
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .position-controls label {
+      font-size: 12px;
+      opacity: 0.7;
+      margin-left: 4px;
+    }
+
+    .position-controls input {
+      background: transparent;
+      color: #fff;
+      border: none;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-size: 12px;
+      width: 80px;
+      font-family: monospace;
+    }
+
+    .position-controls input:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .position-controls input:focus {
+      outline: none;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .zoom-display {
+      font-size: 13px;
+      opacity: 0.8;
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: text;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .zoom-display.editing {
+      background: rgba(255, 255, 255, 0.15);
+      outline: none;
+    }
+
+    .position-controls input,
+    .zoom-display {
+      cursor: ns-resize;
+    }
+
+    .position-controls .separator {
+      opacity: 0.2;
+      margin: 0 4px;
+      color: #fff;
+    }
+  </style>
+  <script type="module">
+    const imports = {
+      env: {
+        memory: new WebAssembly.Memory({
+          initial: 168,
+          maximum: 168,
+          shared: true,
+        })
+      }
+    };
+
+    try {
+      const { instance } = await WebAssembly.instantiateStreaming(
+        fetch("./frak.wasm"),
+        imports
+      );
+
+      const width = 3840;
+      const height = 2160;
+
+      const canvas = document.getElementById("fractal-renderer");
+      canvas.width = width;
+      canvas.height = height;
+
+      const fractalSelect = document.getElementById("fractal-select");
+      fractalSelect.onchange = () => {
+        instance.exports.set_fractal(parseInt(fractalSelect.value));
+        scheduleHighQualityRender();
+      };
+
+      const buffer_address = instance.exports.BUFFER.value;
+      const ctx = canvas.getContext("2d");
+
+      const imageData = ctx.createImageData(width, height);
+
+      let odd = false;
+      let renderTimeout = null;
+      let isHighQuality = false;
+
+      const renderHighQuality = () => {
+        isHighQuality = true;
+        instance.exports.set_quality(true);
+        instance.exports.render();
+
+        const sharedArray = new Uint32Array(instance.exports.memory.buffer, buffer_address, width * height);
+        const localArray = new Uint32Array(imageData.data.buffer);
+        localArray.set(sharedArray);
+
+        ctx.putImageData(imageData, 0, 0);
+      };
+
+      const scheduleHighQualityRender = () => {
+        isHighQuality = false;
+        instance.exports.set_quality(false);
+        if (renderTimeout) {
+          clearTimeout(renderTimeout);
+        }
+        renderTimeout = setTimeout(renderHighQuality, 150);
+      };
+
+      const render = () => {
+        if (!isHighQuality) {
+          instance.exports.render();
+
+          const sharedArray = new Uint32Array(instance.exports.memory.buffer, buffer_address, width * height);
+          const localArray = new Uint32Array(imageData.data.buffer);
+          localArray.set(sharedArray);
+
+          ctx.putImageData(imageData, 0, 0);
+        }
+        requestAnimationFrame(render);
+      };
+
+      let isDragging = false;
+      let lastX = 0, lastY = 0;
+      let currentX = 0, currentY = 0;
+      let currentZoom = 1.0;
+
+      const getCanvasCoordinates = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY
+        };
+      };
+
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        const pos = getCanvasCoordinates(e);
+        lastX = pos.x;
+        lastY = pos.y;
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const pos = getCanvasCoordinates(e);
+        const dx = (pos.x - lastX) * (3.2 / height) / currentZoom;
+        const dy = (pos.y - lastY) * (3.2 / height) / currentZoom;
+        lastX = pos.x;
+        lastY = pos.y;
+
+        currentX -= dx;
+        currentY -= dy;
+        instance.exports.set_view(currentX, currentY, currentZoom);
+        updatePositionDisplay();
+        scheduleHighQualityRender();
+      });
+
+      canvas.addEventListener('mouseup', () => isDragging = false);
+      canvas.addEventListener('mouseleave', () => isDragging = false);
+
+      const xInput = document.getElementById("x-position");
+      const yInput = document.getElementById("y-position");
+
+      const updatePositionDisplay = () => {
+        xInput.value = currentX.toFixed(6);
+        yInput.value = currentY.toFixed(6);
+        updateZoomDisplay();
+      };
+
+      const zoomDisplay = document.getElementById("zoom-display");
+
+      const updateZoomDisplay = () => {
+        zoomDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
+      };
+
+      zoomDisplay.addEventListener('click', () => {
+        zoomDisplay.contentEditable = true;
+        zoomDisplay.classList.add('editing');
+        zoomDisplay.focus();
+      });
+
+      zoomDisplay.addEventListener('blur', () => {
+        zoomDisplay.contentEditable = false;
+        zoomDisplay.classList.remove('editing');
+        updateZoomDisplay();
+      });
+
+      zoomDisplay.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const value = parseFloat(zoomDisplay.textContent);
+          if (!isNaN(value) && value > 0) {
+            currentZoom = value / 100;
+            instance.exports.set_view(currentX, currentY, currentZoom);
+            scheduleHighQualityRender();
+          }
+          zoomDisplay.blur();
+        }
+      });
+
+      xInput.addEventListener('input', () => {
+        const value = parseFloat(xInput.value);
+        if (!isNaN(value)) {
+          currentX = value;
+          instance.exports.set_view(currentX, currentY, currentZoom);
+          scheduleHighQualityRender();
+        }
+      });
+
+      yInput.addEventListener('input', () => {
+        const value = parseFloat(yInput.value);
+        if (!isNaN(value)) {
+          currentY = value;
+          instance.exports.set_view(currentX, currentY, currentZoom);
+          scheduleHighQualityRender();
+        }
+      });
+
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const pos = getCanvasCoordinates(e);
+        const zoomPoint = {
+          x: (pos.x / width - 0.5) * (3.2 / currentZoom) + currentX,
+          y: (pos.y / height - 0.5) * (3.2 / currentZoom) + currentY
+        };
+
+        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+        currentZoom *= zoomFactor;
+
+        currentX = zoomPoint.x - (pos.x / width - 0.5) * (3.2 / currentZoom);
+        currentY = zoomPoint.y - (pos.y / height - 0.5) * (3.2 / currentZoom);
+
+        instance.exports.set_view(currentX, currentY, currentZoom);
+        updatePositionDisplay();
+        scheduleHighQualityRender();
+      });
+
+      function scrollAdjust(e, getValue, setValue, step = 0.01, invertDelta = false) {
+        e.preventDefault();
+        let delta = e.deltaY < 0 ? step : -step;
+        if (invertDelta) delta *= -1;
+        const newValue = getValue() + delta;
+        setValue(newValue);
+        scheduleHighQualityRender();
+      }
+
+      xInput.addEventListener('wheel', (e) => {
+        scrollAdjust(e,
+          () => parseFloat(xInput.value),
+          (val) => {
+            currentX = val;
+            xInput.value = val.toFixed(6);
+            instance.exports.set_view(currentX, currentY, currentZoom);
+          }
+        );
+      });
+
+      yInput.addEventListener('wheel', (e) => {
+        scrollAdjust(e,
+          () => parseFloat(yInput.value),
+          (val) => {
+            currentY = val;
+            yInput.value = val.toFixed(6);
+            instance.exports.set_view(currentX, currentY, currentZoom);
+          },
+          0.01,
+          true,
+        );
+      });
+
+      zoomDisplay.addEventListener('wheel', (e) => {
+        scrollAdjust(e,
+          () => currentZoom * 100,
+          (val) => {
+            currentZoom = val / 100;
+            updateZoomDisplay();
+            instance.exports.set_view(currentX, currentY, currentZoom);
+          },
+          10,
+        );
+      });
+
+      canvas.classList.add('loaded');
+      scheduleHighQualityRender();
+      render();
+      updatePositionDisplay();
+    } catch (e) {
+      console.error("your browser doesn't support wasm", e);
+    }
+  </script>
+</head>
+
+<body>
+  <div class="taskbar">
+    <select id="fractal-select">
+      <option value="0">Mandelbrot Set</option>
+      <option value="1">Julia Set</option>
+      <option value="2">Burning Ship</option>
+      <option value="3">Newton</option>
+      <option value="4">Rainbow Newton</option>
+      <option value="5">Tricorn</option>
+      <option value="6">Phoenix</option>
+      <option value="7">Celtic</option>
+    </select>
+    <div class="position-controls">
+      <label>X:</label>
+      <input type="number" id="x-position" step="0.000001">
+      <span class="separator">│</span>
+      <label>Y:</label>
+      <input type="number" id="y-position" step="0.000001">
+    </div>
+    <div id="zoom-display" class="zoom-display taskbar-right" role="textbox">100%</div>
+  </div>
+  <div class="canvas-container">
+    <canvas id="fractal-renderer"></canvas>
+  </div>
+</body>
+
+</html>

@@ -1,0 +1,11 @@
+[package]
+edition = "2021"
+name = "frak"
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+num-complex = "0.4.6"
+rayon = "1.10.0"
