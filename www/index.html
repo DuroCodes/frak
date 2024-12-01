@@ -174,14 +174,12 @@
     }
   </style>
   <script type="module">
-    // Declare DOM elements first
     const canvas = document.getElementById("fractal-renderer");
     const fractalSelect = document.getElementById("fractal-select");
     const xInput = document.getElementById("x-position");
     const yInput = document.getElementById("y-position");
     const zoomDisplay = document.getElementById("zoom-display");
 
-    // Declare state variables
     let isDragging = false;
     let lastX = 0, lastY = 0;
     let currentX = 0, currentY = 0;
@@ -192,7 +190,6 @@
     let lastTouchX = 0;
     let lastTouchY = 0;
 
-    // URL handling functions
     function updateURL() {
       const params = new URLSearchParams();
       params.set('f', fractalSelect.value);
@@ -213,7 +210,6 @@
       };
     }
 
-    // Rest of the initialization code
     const imports = {
       env: {
         memory: new WebAssembly.Memory({
@@ -236,7 +232,6 @@
       canvas.width = width;
       canvas.height = height;
 
-      // Now read URL params
       const urlParams = getURLParams();
       fractalSelect.value = urlParams.fractal;
       currentX = urlParams.x;
@@ -548,6 +543,10 @@
       <option value="5">Tricorn</option>
       <option value="6">Phoenix</option>
       <option value="7">Celtic</option>
+      <option value="8">Magnet</option>
+      <option value="9">Burning Julia</option>
+      <option value="10">Buffalo</option>
+      <option value="11">Nova</option>
     </select>
     <div class="position-controls">
       <label>X:</label>
