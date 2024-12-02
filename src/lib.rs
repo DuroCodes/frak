@@ -617,7 +617,7 @@ fn celtic(c: Complex32, max_i: u8) -> f32 {
     for i in 1..max_i {
         if z.norm_sqr() > 16.0 {
             let log_zn = z.norm_sqr().ln() / 2.0;
-            let nu = log_zn / 4.0_f32.ln(); //
+            let nu = log_zn / 4.0_f32.ln();
             return (i as f32) + 1.0 - nu;
         }
         z = Complex32::new((z * z + c).re.abs(), (z * z + c).im);
