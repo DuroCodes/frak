@@ -1,90 +1,142 @@
 #!/bin/bash
 
-set -e  # Exit on any error
+OS=""
 
-TARGET=wasm32-unknown-unknown
-BINARY=target/$TARGET/release/frak.wasm
-WABT_VERSION=1.0.36
-WABT_DIR="$HOME/wabt-$WABT_VERSION"
+# Check the OS
+check_os() {
+  case "$OSTYPE" in
+    linux-gnu*) OS="linux" ;;
+    darwin*) OS="macos" ;;
+    cygwin*|msys*|win32*) OS="windows" ;;
+    *) echo "Unknown OS: $OSTYPE"; exit 1 ;;
+  esac
+}
 
-# Function to install Rust if not already installed
+# Install Rust if not present
 install_rust() {
-  if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    # Check if .cargo exists in the user's profile for Windows
-    if [ ! -d "$HOME/.cargo" ]; then
-      echo "Rust is not installed. Installing Rust..."
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      # Add Cargo to PATH (for Windows)
-      echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
-      echo "Please restart your shell to ensure Cargo is in your PATH."
+  if ! command -v rustc &>/dev/null; then
+    echo "Rust is not installed. Installing..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    if [[ "$OS" == "windows" ]]; then
+      echo "export PATH=\$HOME/.cargo/bin:\$PATH" >> "$PROFILE_FILE"
     else
-      echo "Rust is already installed on Windows."
+      source "$HOME/.cargo/env"
     fi
   else
-    # Linux/macOS installation
-    if ! command -v cargo &>/dev/null; then
-      echo "Rust is not installed. Installing Rust..."
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      source $HOME/.cargo/env
-    else
-      echo "Rust is already installed."
-    fi
+    echo "Rust is already installed."
   fi
 }
 
-# Function to install wabt tools if not already installed
-install_wabt() {
-  if ! command -v wasm-strip &>/dev/null; then
-    echo "Installing wabt (wasm-tools)..."
-    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-      echo "Windows detected. Installing wabt using manual download..."
-      mkdir -p $WABT_DIR
-      curl -L https://github.com/WebAssembly/wabt/releases/download/$WABT_VERSION/wabt-$WABT_VERSION-macos-12.tar.gz -o $WABT_DIR/wabt.tar.gz
-      tar -xzvf $WABT_DIR/wabt.tar.gz -C $WABT_DIR
-      export PATH="$PATH:$WABT_DIR/wabt-$WABT_VERSION/bin"
-    else
-      echo "Installing wabt-tools using package manager..."
-      if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        sudo apt-get update && sudo apt-get install -y wabt
-      elif [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install wabt
-      fi
-    fi
-  else
-    echo "wabt (wasm-tools) is already installed."
+# Install wasm32-unknown-unknown target if not present
+install_target() {
+  if ! rustup target list --installed | grep -q wasm32-unknown-unknown; then
+    rustup target add wasm32-unknown-unknown
   fi
 }
 
-# Function to install wasm-opt using cargo
+# Install wasm-opt if not present
 install_wasm_opt() {
   if ! command -v wasm-opt &>/dev/null; then
-    echo "Installing wasm-opt via cargo..."
     cargo install wasm-opt
   fi
 }
 
-# Check and install dependencies
+# Install WABT on Linux
+install_wabt_linux() {
+  if ! command -v wasm-opt &>/dev/null || ! command -v wasm-strip &>/dev/null; then
+    echo "WABT not found, installing via apt..."
+    sudo apt update
+    sudo apt install -y wabt
+  else
+    echo "WABT is already installed."
+  fi
+}
+
+# Install WABT on macOS
+install_wabt_macos() {
+  # Check if brew is available as a command or located at /opt/homebrew/bin/brew
+  if ! command -v brew &>/dev/null; then
+    if [[ -f "/opt/homebrew/bin/brew" ]]; then
+      echo "/opt/homebrew/bin/brew exists. Adding to PATH..."
+      echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    else
+      echo "Homebrew is not installed. Installing..."
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zshrc"
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    fi
+  else
+    echo "Homebrew is already installed."
+  fi
+
+  # Ensure /opt/homebrew/bin is in PATH
+  if [[ ":$PATH:" != *":/opt/homebrew/bin:"* ]]; then
+    echo "Adding /opt/homebrew/bin to PATH..."
+    echo 'export PATH="/opt/homebrew/bin:$PATH"' >> "$HOME/.zshrc"
+    source "$HOME/.zshrc"
+  fi
+
+  # Check and install WABT
+  if ! command -v wasm-opt &>/dev/null || ! command -v wasm-strip &>/dev/null; then
+    echo "Installing WABT using Homebrew..."
+    brew install wabt
+  else
+    echo "WABT is already installed."
+  fi
+}
+
+
+# Install WABT on Windows
+install_wabt_windows() {
+  WABT_DIR="$HOME/wabt"
+  if [[ ! -d "$WABT_DIR" ]]; then
+    echo "WABT not found, downloading..."
+    mkdir -p "$WABT_DIR"
+    WABT_TAR_URL="https://github.com/WebAssembly/wabt/releases/download/1.0.36/wabt-1.0.36-windows.tar.gz"
+    curl -L $WABT_TAR_URL -o "$WABT_DIR/wabt.tar.gz"
+    tar -xzvf "$WABT_DIR/wabt.tar.gz" -C "$WABT_DIR"
+    rm "$WABT_DIR/wabt.tar.gz"
+    mv "$WABT_DIR/wabt-1.0.36/"* "$WABT_DIR/"
+    rmdir "$WABT_DIR/wabt-1.0.36"
+    echo "WABT extracted successfully to $WABT_DIR"
+  fi
+
+  if ! command -v wasm-opt &>/dev/null || ! command -v wasm-strip &>/dev/null; then
+    echo "Adding WABT to PATH..."
+    export PATH="$PATH:$WABT_DIR/bin"
+  fi
+}
+
+# Main installation logic
+install_wabt() {
+  case "$OS" in
+    linux) install_wabt_linux ;;
+    macos) install_wabt_macos ;;
+    windows) install_wabt_windows ;;
+    *) echo "Unsupported OS for WABT installation"; exit 1 ;;
+  esac
+}
+
+# Main script logic
+check_os
 install_rust
-install_wabt
+install_target
 install_wasm_opt
+install_wabt
 
-# Ensure the wasm32-unknown-unknown target is installed
-if ! rustup target list --installed | grep -q $TARGET; then
-  echo "Installing target $TARGET..."
-  rustup target add $TARGET
-fi
+# Build the WebAssembly binary
+TARGET=wasm32-unknown-unknown
+BINARY=target/$TARGET/release/frak.wasm
 
-# Build the WebAssembly binary, ignoring static_mut_refs warning
 echo "Building WebAssembly binary..."
 RUSTFLAGS='-C target-feature=+bulk-memory,+mutable-globals -A static_mut_refs' \
   INITIAL_MEMORY=168 \
   cargo build --target $TARGET --release
 
-# Optimize the WebAssembly binary
-echo "Stripping debug symbols..."
+# Optimize and strip the WebAssembly binary
+echo "Stripping and optimizing..."
 wasm-strip $BINARY
-
-echo "Optimizing WebAssembly binary..."
 mkdir -p www
 wasm-opt -O3 --enable-threads --enable-bulk-memory -o www/frak.wasm $BINARY
 
